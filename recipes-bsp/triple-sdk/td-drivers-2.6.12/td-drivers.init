@@ -1,0 +1,47 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          td-drivers
+# Required-Start:
+# Required-Stop:
+# Should-Start:
+# Should-stop:
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Load TD drivers.
+# Description:       Load the modules for the TripleDragon box.
+### END INIT INFO
+
+case $1 in
+start)
+	/sbin/modprobe tdcore
+	/sbin/modprobe tdav
+	/sbin/modprobe tdpanel
+	/sbin/modprobe tdtuner
+	/sbin/modprobe tdca
+	/sbin/modprobe tdci
+	/sbin/modprobe tdgfx
+	/sbin/modprobe tdoss
+
+	mkdir /dev/stb
+	mknod /dev/stb/tdsc0         u 233 0
+	mknod /dev/stb/tdsc1         u 233 1
+	mknod /dev/stb/tdci          u 234 0
+	mknod /dev/stb/tdtuner0      u 235 0
+	mknod /dev/stb/tdtuner1      u 235 1
+	mknod /dev/stb/tdtuner2      u 235 2
+	mknod /dev/stb/tddemux0      u 236 0
+	mknod /dev/stb/tddemux1      u 236 1
+	mknod /dev/stb/tddemux2      u 236 2
+	mknod /dev/stb/tdpvr         u 236 3
+	mknod /dev/stb/tdvideo       u 237 0
+	mknod /dev/stb/tdlcd         u 238 0
+	mknod /dev/stb/tdremote      u 240 0
+	mknod /dev/stb/tdsystem      u 241 0
+	mknod /dev/stb/tdaudio       u 242 0
+	mknod /dev/stb/tdaudio_mixer u 242 5
+	mknod /dev/stb/tdgfx         u 251 0
+	# mkdir /dev/fusion
+	# mknod /dev/fusion/0          u 252 0
+	ln -s /dev/fb/0 /dev/fb0
+	;;
+esac

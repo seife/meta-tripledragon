@@ -51,3 +51,10 @@ oe_runmake() {
 	make ${TDKERNEL_CCOPTS} "$@" || die "oe_runmake failed"
 }
 
+do_install_append() {
+	# td-drivers contains these modules, too
+	rm ${D}/lib/modules/2.6.12/kernel/drivers/usb/host/ohci-hcd.ko
+	rm ${D}/lib/modules/2.6.12/kernel/drivers/usb/storage/usb-storage.ko
+	rmdir ${D}/lib/modules/2.6.12/kernel/drivers/usb/host
+	rmdir ${D}/lib/modules/2.6.12/kernel/drivers/usb/storage
+}
