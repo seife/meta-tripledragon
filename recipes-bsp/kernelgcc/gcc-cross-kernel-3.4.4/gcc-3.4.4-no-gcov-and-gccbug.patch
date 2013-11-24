@@ -1,0 +1,30 @@
+Index: gcc-3.4.4/gcc/Makefile.in
+===================================================================
+--- gcc-3.4.4.orig/gcc/Makefile.in
++++ gcc-3.4.4/gcc/Makefile.in
+@@ -119,11 +119,11 @@ T_ADAFLAGS =
+ # List of language subdirectories.
+ SUBDIRS =@subdirs@
+ 
+ # Selection of languages to be made.
+ CONFIG_LANGUAGES = @all_languages@
+-LANGUAGES = c gcov$(exeext) gcov-dump$(exeext) $(CONFIG_LANGUAGES)
++LANGUAGES = c $(CONFIG_LANGUAGES)
+ 
+ # Selection of languages to be made during stage1 build.
+ BOOT_LANGUAGES = c @all_boot_languages@
+ 
+ # Various ways of specifying flags for compilations:
+@@ -2948,11 +2948,11 @@ install-common: native $(EXTRA_PARTS) la
+ 	-if [ -f gcov$(exeext) ]; \
+ 	then \
+ 	    rm -f $(DESTDIR)$(bindir)/$(GCOV_INSTALL_NAME)$(exeext); \
+ 	    $(INSTALL_PROGRAM) gcov$(exeext) $(DESTDIR)$(bindir)/$(GCOV_INSTALL_NAME)$(exeext); \
+ 	fi
+-	$(INSTALL_SCRIPT) gccbug $(DESTDIR)$(bindir)/$(GCCBUG_INSTALL_NAME)
++	# $(INSTALL_SCRIPT) gccbug $(DESTDIR)$(bindir)/$(GCCBUG_INSTALL_NAME)
+ 
+ # Install the driver program as $(target_noncanonical)-gcc, 
+ # $(target_noncanonical)-gcc-$(version)
+ # and also as either gcc (if native) or $(gcc_tooldir)/bin/gcc.
+ install-driver: installdirs xgcc$(exeext)

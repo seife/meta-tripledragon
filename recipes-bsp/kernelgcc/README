@@ -1,0 +1,6 @@
+This builds an old cross-gcc to build the TD kernel modules.
+
+Taken mostly from openembedded git://git.openembedded.org/openembedded
+commit caf9b3cf2766c3f2edc639a150fc5d52a605260e, directory recipes/gcc
+
+...and fixed up to build with yocto-poky 1.5 "dora"
