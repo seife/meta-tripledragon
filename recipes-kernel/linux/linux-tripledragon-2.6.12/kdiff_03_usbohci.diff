@@ -1,0 +1,63 @@
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/include/asm-ppc/usb.h linux-2.6.12/include/asm-ppc/usb.h
+--- linux-2.6.12.orig/include/asm-ppc/usb.h	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.6.12/include/asm-ppc/usb.h	2005-06-26 21:35:40.000000000 +0200
+@@ -0,0 +1,15 @@
++/*
++ * ppc/usb.h:
++ *
++ */
++#ifndef _PPC_USB_H
++#define _PPC_USB_H
++
++struct usb_hcd_platform_data {
++	char *name;
++	int (*start) (struct platform_device *pdev);
++	void (*stop) (struct platform_device *pdev);
++};
++
++#endif /* !(_PPC_USB_H) */
++
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/usb/Kconfig linux-2.6.12/drivers/usb/Kconfig
+--- linux-2.6.12.orig/drivers/usb/Kconfig	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/usb/Kconfig	2005-06-25 23:35:38.000000000 +0200
+@@ -24,6 +24,7 @@
+ 	# PPC:
+ 	default y if STB03xxx
+ 	default y if PPC_MPC52xx
++	default y if TRIPLEDRAGON
+ 	# MIPS:
+ 	default y if SOC_AU1X00
+ 	# more:
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/usb/host/Kconfig linux-2.6.12/drivers/usb/host/Kconfig
+--- linux-2.6.12.orig/drivers/usb/host/Kconfig	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/usb/host/Kconfig	2005-06-25 23:37:19.000000000 +0200
+@@ -68,7 +68,7 @@
+
+ config USB_OHCI_HCD_PPC_SOC
+ 	bool "OHCI support for on-chip PPC USB controller"
+-	depends on USB_OHCI_HCD && (STB03xxx || PPC_MPC52xx)
++	depends on USB_OHCI_HCD && (STB03xxx || PPC_MPC52xx || TRIPLEDRAGON)
+ 	default y
+ 	select USB_OHCI_BIG_ENDIAN
+ 	---help---
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/usb/host/ohci-ppc-soc.c linux-2.6.12/drivers/usb/host/ohci-ppc-soc.c
+--- linux-2.6.12.orig/drivers/usb/host/ohci-ppc-soc.c	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/usb/host/ohci-ppc-soc.c	2005-06-26 21:36:35.000000000 +0200
+@@ -15,6 +15,8 @@
+  */
+
+ #include <asm/usb.h>
++// #include <asm/ocp.h>
++// #include <asm/dma-mapping.h>
+
+ /* configure so an HC device and id are always provided */
+ /* always called with process context; sleeping is OK */
+@@ -123,7 +125,7 @@
+
+ 	iounmap(hcd->regs);
+ 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+-	usb_hcd_put(hcd);
++	usb_put_hcd(hcd);
+ }
+
+ static int __devinit

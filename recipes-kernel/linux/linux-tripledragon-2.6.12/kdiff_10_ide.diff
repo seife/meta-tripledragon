@@ -1,0 +1,1018 @@
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/ide/Kconfig linux-2.6.12/drivers/ide/Kconfig
+--- linux-2.6.12.orig/drivers/ide/Kconfig	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/ide/Kconfig	2005-06-27 22:15:40.000000000 +0200
+@@ -928,6 +928,15 @@
+
+ endchoice
+
++config BLK_DEV_IDE_STB04xxx
++	tristate "STB04xxx TripleDragon IDE support"
++	depends on BLK_DEV_IDE && IBM_PALLAS
++	help
++	  This option provides support for IDE on IBM STB04xxx Redwood-5
++	  systems.
++
++	  If unsure, say N.
++
+ # no isa -> no vlb
+ config IDE_CHIPSETS
+ 	bool "Other IDE chipset support"
+@@ -1006,11 +1015,11 @@
+ endif
+
+ config BLK_DEV_IDEDMA
+-	def_bool BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS
++	def_bool BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS || BLK_DEV_IDE_STB04xxx
+
+ config IDEDMA_IVB
+ 	bool "IGNORE word93 Validation BITS"
+-	depends on BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS
++	depends on BLK_DEV_IDEDMA_PCI || BLK_DEV_IDEDMA_PMAC || BLK_DEV_IDEDMA_ICS || BLK_DEV_IDE_STB04xxx
+ 	---help---
+ 	  There are unclear terms in ATA-4 and ATA-5 standards how certain
+ 	  hardware (an 80c ribbon) should be detected. Different interpretations
+@@ -1025,7 +1034,7 @@
+ 	  It is normally safe to answer Y; however, the default is N.
+
+ config IDEDMA_AUTO
+-	def_bool IDEDMA_PCI_AUTO || IDEDMA_ICS_AUTO
++	def_bool IDEDMA_PCI_AUTO || IDEDMA_ICS_AUTO || BLK_DEV_IDE_STB04xxx
+
+ endif
+
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/ide/Makefile linux-2.6.12/drivers/ide/Makefile
+--- linux-2.6.12.orig/drivers/ide/Makefile	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/ide/Makefile	2005-06-25 03:48:21.000000000 +0200
+@@ -37,6 +37,11 @@
+ # built-in only drivers from ppc/
+ ide-core-$(CONFIG_BLK_DEV_MPC8xx_IDE)	+= ppc/mpc8xx.o
+ ide-core-$(CONFIG_BLK_DEV_IDE_PMAC)	+= ppc/pmac.o
++ifeq ($(CONFIG_BLK_DEV_IDE_STB04xxx),y)
++ide-core-$(CONFIG_BLK_DEV_IDE_STB04xxx)	+= ppc/ibm_ocp_ide.o
++else
++obj-$(CONFIG_BLK_DEV_IDE_STB04xxx)	+= ppc/ibm_ocp_ide.o
++endif
+
+ # built-in only drivers from h8300/
+ ide-core-$(CONFIG_H8300)		+= h8300/ide-h8300.o
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/ide/ppc/ibm_ocp_ide.c linux-2.6.12/drivers/ide/ppc/ibm_ocp_ide.c
+--- linux-2.6.12.orig/drivers/ide/ppc/ibm_ocp_ide.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.6.12/drivers/ide/ppc/ibm_ocp_ide.c	2005-06-27 23:27:12.000000000 +0200
+@@ -0,0 +1,957 @@
++/*
++ * IDE driver for IBM On-chip IDE contollers
++ *    Copyright 2001 - 2002 MontaVista Software Inc.
++ *    Dan Malek.
++ *    2003/2004 AndrÃ© Draszik
++ *    I snagged bits and pieces from a variety of drivers, primarily
++ *    ide-pmac.c and ide-dma.c .....thanks to previous authors!
++ *
++ *    Version 1.2 (01/30/12) Armin
++ *    Converted to ocp
++ *    merger up to new ide-timing.h
++ *
++ *    Version 2.0 (05/02/15) - armin
++ *    converted to new core_ocp and only supports one interface for now.
++ *
++ *    Version 2.1 (05/25/02) - armin
++ *      name change from *_driver to *_dev
++ *    Version 2.2 06/13/02 - Armin
++ *      changed irq_resource array to just irq
++ *
++ *    Version 2.3au (June 2003) - andre
++ *      rewrote much of it to fix some serious bugs
++ *
++ *    Version 2.4au (Jan 2004) - andre
++ *      enable DMA read/write from within ide_dma_read/write () hoping
++ *      to fix IDE SCSI and such
++ *
++ *    Version 2.4aw (Jul 2004) - andre
++ *      - finally fix that nasty DMA bug which prevented non hard disk
++ *        devices from working correctly. the driver is kewl now!
++ *      - add white and blacklists from ide-dma.c
++ *      - increase max size of one PRD entry to 65536 bytes
++ *
++ *    Version 2.6aw (Jul 2004) - andre
++ *      - support linux kernels 2.6.x
++ *
++ *    Version 2.6ax (Jul 2004) - andre, uli
++ *      - fix DMA with 2.6.x kernels
++ *
++ *    Versipm 2.73
++ *      - support powerup by tdcore and/or loader
++ *
++ *    Version 2.74 (Juni 2005) - uli
++ *      - support 2.6.12 kernel
++ */
++
++//#define _LDEBUG_
++#define fprintk(x...)  ( { } )
++
++
++#include <linux/types.h>
++#include <linux/init.h>
++#include <linux/module.h>
++#include <linux/hdreg.h>
++#include <linux/delay.h>
++#include <linux/ide.h>
++#include <linux/version.h>
++#include <ide-timing.h>
++#include <asm/ocp.h>
++#include <asm/io.h>
++#include <asm/scatterlist.h>
++#include <asm/dma-mapping.h>
++
++
++#include "/projects/stb/drivers/include/os/registerio.h"
++#include "/projects/stb/drivers/include/os/os-generic.h"
++
++#define _DRV_NAME_		"\rSTB04500 OCP IDE"
++#define _DRV_VERSION_	"2.74"
++
++#include "/projects/stb/drivers/include/os/pversion.h"
++
++
++//--------------------------------------------------------------------------
++static s32 ide_debug = 0;
++module_param(ide_debug, int, 0644);
++MODULE_PARM_DESC(ide_debug, "IDE debugging level (default = 0)");
++
++//--------------------------------------------------------------------------
++#define FPRINTK( format, args... ) printk( format, ##args )
++#define DPRINTK( format, args... ) printk( "\r\x1b[34m[%s] \x1b[0m" format, __FUNCTION__, ##args )
++#define EPRINTK( format, args... ) printk( "\r\x1b[1;31m[%s] \x1b[0mError: " format, __FUNCTION__, ##args )
++
++
++//--------------------------------------------------------------------------
++static void stb04xxx_init_ocp_ide(ide_hwif_t * const hwif);
++static void stb04xxx_dma_start(ide_drive_t * const drive);
++
++
++//--------------------------------------------------------------------------
++//--------------------------------------------------------------------------
++/****************************************************************
++* #define SLEEP(ms) ( { current->state = TASK_INTERRUPTIBLE; \  *
++*         schedule_timeout(((HZ / 100) * ms) / 10); } )         *
++****************************************************************/
++
++//--------------------------------------------------------------------------
++#define MK_TIMING(AS, DIOP, DIOY, DH) \
++	((FIT((AS),    0, 0x0f) << 27) | \
++	 (FIT((DIOP),  0, 0x3f) << 20) | \
++	 (FIT((DIOY),  0, 0x3f) << 13) | \
++	 (FIT((DH),    0, 0x07) <<  9))
++
++#define UTIMING_SETHLD	(EZ(20 /*tACK*/, SYS_CLOCK_NS) - 1 /*fixed cycles*/)
++#define UTIMING_ENV	(EZ(20 /*tENV*/, SYS_CLOCK_NS) - 1 /*fixed cycles*/)
++#define UTIMING_SS	(EZ(50 /*tSS */, SYS_CLOCK_NS) - 3 /*fixed cycles*/)
++
++#define MK_UTIMING(CYC, RP) \
++	((FIT(UTIMING_SETHLD, 0, 0x0f) << 27) | \
++	 (FIT(UTIMING_ENV,    0, 0x0f) << 22) | \
++	 (FIT((CYC),          0, 0x0f) << 17) | \
++	 (FIT((RP),           0, 0x3f) << 10) | \
++	 (FIT(UTIMING_SS,     0, 0x0f) <<  5) | \
++	 1 /* Turn on Ultra DMA */)
++
++/* Define the period of the STB clock used to generate the
++ * IDE bus timing.  The clock is actually 63 MHz, but it
++ * gets rounded in a favorable direction.
++ */
++#define IDE_SYS_FREQ	63	/* MHz */
++#define SYS_CLOCK_NS	(1000 / IDE_SYS_FREQ)   /* 1takt == SYS_CLOCK_NS nanosekunden */
++
++struct whold_timing {
++	short mode;
++	short whold;
++};
++
++static const struct whold_timing whold_timing[] = {
++
++	{XFER_UDMA_5, 0},
++	{XFER_UDMA_4, 0},
++	{XFER_UDMA_3, 0},
++
++	{XFER_UDMA_2, 0},
++	{XFER_UDMA_1, 0},
++	{XFER_UDMA_0, 0},
++
++	{XFER_UDMA_SLOW, 0},
++
++	{XFER_MW_DMA_2, 0},
++	{XFER_MW_DMA_1, 0},
++	{XFER_MW_DMA_0, 0},
++
++	{XFER_SW_DMA_2, 0},
++	{XFER_SW_DMA_1, 0},
++	{XFER_SW_DMA_0, 10},
++
++	{XFER_PIO_5, 10},
++	{XFER_PIO_4, 10},
++	{XFER_PIO_3, 15},
++
++	{XFER_PIO_2, 20},
++	{XFER_PIO_1, 30},
++	{XFER_PIO_0, 50},
++
++	{XFER_PIO_SLOW,},
++
++	{-1}
++};
++
++/* The interface doesn't have register/PIO timing for each device,
++ * but rather "fast" and "slow" timing.  We have to determeine
++ * which is the "fast" device based upon their capability.
++ */
++static int pio_mode[3] = { -1, -1, 0 }; /* entry 3: not our hardware */
++
++
++/* structure of the memory mapped IDE control */
++typedef struct ide_regs {
++	unsigned int si_stat;	/* IDE status */
++	unsigned int si_intenable;	/* IDE interrupt enable */
++	unsigned int si_control;	/* IDE control */
++	unsigned int pad0[0x3d];
++	unsigned int si_c0rt;	/* Chan 0 Register transfer timing */
++	unsigned int si_c0fpt;	/* Chan 0 Fast PIO transfer timing */
++	unsigned int si_c0timo;	/* Chan 0 timeout */
++	unsigned int pad1[2];
++	unsigned int si_c0d0u;	/* Chan 0 dev 0 UDMA timing */
++#define si_c0d0m si_c0d0u	/* Chan 0 dev 0 Multiword DMA timing */
++	unsigned int pad2;
++	unsigned int si_c0d1u;	/* Chan 0 dev 1 UDMA timing */
++#define si_c0d1m si_c0d1u	/* Chan 0 dev 1 Multiword DMA timing */
++	unsigned int si_c0c;	/* Chan 0 Control */
++	unsigned int si_c0s0;	/* Chan 0 Status 0 */
++	unsigned int si_c0ie;	/* Chan 0 Interrupt Enable */
++	unsigned int si_c0s1;	/* Chan 0 Status 0 */
++	unsigned int pad4[4];
++	unsigned int si_c0dcm;	/* Chan 0 DMA Command */
++	unsigned int si_c0tb;	/* Chan 0 PRD Table base address */
++	unsigned int si_c0dct;	/* Chan 0 DMA Count */
++	unsigned int si_c0da;	/* Chan 0 DMA Address */
++	unsigned int si_c0sr;	/* Chan 0 Slew Rate Output Control */
++	unsigned char pad5[0xa2];
++	unsigned short si_c0adc;	/* Chan 0 Alt status/control */
++	unsigned char si_c0d;	/* Chan 0 data */
++	unsigned char si_c0ef;	/* Chan 0 error/features */
++	unsigned char si_c0sct;	/* Chan 0 sector count */
++	unsigned char si_c0sn;	/* Chan 0 sector number */
++	unsigned char si_c0cl;	/* Chan 0 cylinder low */
++	unsigned char si_c0ch;	/* Chan 0 cylinder high */
++	unsigned char si_c0dh;	/* Chan 0 device/head */
++	unsigned char si_c0scm;	/* Chan 0 status/command */
++} ide_t;
++
++/* The structure of the PRD entry.  The address must be word aligned,
++ * and the count must be an even number of bytes.
++ */
++typedef struct {
++	unsigned int prd_physptr;
++	unsigned int prd_count;	/* Count only in lower 16 bits */
++} prd_entry_t;
++#define PRD_EOT		0x80000000lu	/* Set in prd_count */
++
++/* The number of PRDs required in a single transfer from the upper IDE
++ * functions. The maximum number is 128 (ide.h), but most seem to code to
++ * 256 (because of having two IDE channels). must be less than one page.
++ */
++#define NUM_PRD	256
++
++
++//--------------------------------------------------------------------------
++
++
++
++
++//--------------------------------------------------------------------------
++//--------------------------------------------------------------------------
++//--------------------------------------------------------------------------
++// this is borrowed from ide_timing_find_mode so we can find the proper whold parameter
++static s16 whold_timing_find_mode(short speed) {
++	const struct whold_timing *t;
++
++	for( t = whold_timing; likely(t->mode >= 0); t++ )
++		if( t->mode == speed ) return(t->whold);
++
++	return(0);
++}
++
++//--------------------------------------------------------------------------
++// The STB04 has a fixed number of cycles that get added in regardless.
++// Adjust an ide_timing struct to accommodate that.
++static void stb04xxx_ide_adjust_timing(struct ide_timing * const t) {
++	t->setup   -= 2;
++	t->act8b   -= 1;
++	t->rec8b   -= 1;
++	t->active  -= 1;
++	t->recover -= 1;
++}
++
++static s32 stb04xxx_ide_tune_chipset (ide_drive_t * const drive, u8 speed) {
++	volatile ide_t    * const ide  = HWIF(drive)->hwif_data;
++	ide_drive_t       *peer        = HWIF(drive)->drives + (~drive->dn & 1);
++	struct ide_timing  t, p, merge, *fast;
++	s32 fast_device;
++	u32 ctl;
++
++	if( speed != XFER_PIO_SLOW && speed != drive->current_speed )
++		if( ide_config_drive_speed(drive, speed) )
++			printk(KERN_WARNING "ide%d: Drive %d didn't accept speed setting\n", drive->dn >> 1, drive->dn & 1);
++
++	ide_timing_compute(drive, speed, &t, SYS_CLOCK_NS, SYS_CLOCK_NS);
++	stb04xxx_ide_adjust_timing(&t);
++
++	/* peer is the other, i.e. not current, drive */
++	if( peer->present ) {
++		ide_timing_compute(peer, peer->current_speed, &p, SYS_CLOCK_NS, SYS_CLOCK_NS);
++		stb04xxx_ide_adjust_timing(&p);
++		ide_timing_merge(&p, &t, &merge, IDE_TIMING_8BIT | IDE_TIMING_SETUP);
++	} else {
++		merge = t;
++	}
++
++	if(!drive->init_speed) drive->init_speed = speed;
++	drive->current_speed = speed;
++
++	/* Now determine which drive is faster, and set up the
++	 * interface timing.  It would sure be nice if they would
++	 * have just had the timing registers for each device......
++	 */
++	/* change pio_mode of current drive */
++	pio_mode[(drive->dn & 1)] = (int) speed;
++
++	/* Now determine which of the drives
++	 * the first call we only know one device, and on subsequent
++	 * calls the user may manually change drive parameters.
++	 * Make timing[0] the fast device and timing[1] the slow.
++	 */
++
++	// compare pio_mode of both drives, one of them is faster than the other
++	if (pio_mode[0] >= pio_mode[1]) {
++		fast_device = 0;
++	} else {
++		fast_device = 1;
++	}
++
++	if (fast_device == (drive->dn & 1)) {									// if fast drive == current drive
++		fast = &t;
++	} else {																// if fast drive == peer (other) drive
++		fast = &p;
++	}
++
++	/* Now we know which device is the fast one and which is
++	 * the slow one.  The merged timing goes into the "regular"
++	 * timing registers and represents the slower of both times.
++	 */
++	ide->si_c0rt = MK_TIMING(merge.setup, merge.act8b, merge.rec8b, whold_timing_find_mode(merge.mode));
++
++	ide->si_c0fpt = MK_TIMING(fast->setup, fast->act8b, fast->rec8b, whold_timing_find_mode(fast->mode));
++
++	/* tell the interface which drive is the fast one. 	 */
++	ctl = ide->si_c0c; /* Chan 0 Control */
++	ctl &= ~0x10000000;
++	ctl |= fast_device << 28;
++	ide->si_c0c = ctl;
++
++	/* Set up DMA timing. */
++	if( (speed & XFER_MODE) != XFER_PIO ) {
++		/* NOTE: si_c0d0m and si_c0d0u are two different names
++		 * for the same register.  Whether it is used for
++		 * Multi-word DMA timings or Ultra DMA timings is
++		 * determined by the LSB written into it.  This is also
++		 * true for si_c0d1m and si_c0d1u.  */
++		volatile unsigned int *dtiming;
++		if( drive->dn & 1 ) {
++			dtiming = &(ide->si_c0d1u);
++		} else {
++			dtiming = &(ide->si_c0d0u);
++		}
++
++		if( (speed & XFER_MODE) == XFER_UDMA ) {
++			static const int tRP[] = {
++				EZ(160, SYS_CLOCK_NS) - 2 /*fixed cycles */ ,
++				EZ(125, SYS_CLOCK_NS) - 2 /*fixed cycles */ ,
++				EZ(100, SYS_CLOCK_NS) - 2 /*fixed cycles */ ,
++				EZ(100, SYS_CLOCK_NS) - 2 /*fixed cycles */ ,
++				EZ(100, SYS_CLOCK_NS) - 2 /*fixed cycles */ ,
++				EZ( 85, SYS_CLOCK_NS) - 2 /*fixed cycles */
++			};
++			static const int NUMtRP = (sizeof (tRP) / sizeof (tRP[0]));
++			*dtiming = MK_UTIMING(t.udma, tRP[FIT(speed & 0xf, 0, NUMtRP - 1)]);
++		} else {
++			/* Multi-word DMA.  Note that t.recover/2 is an
++			 * approximation of MAX(tH, MAX(tJ, tN)) */
++			*dtiming = MK_TIMING(t.setup, t.active, t.recover, t.recover / 2);
++		}
++		drive->using_dma = 1;
++	}
++
++	return(0);
++}
++
++
++//--------------------------------------------------------------------------
++// stb04xxx_ide_tune_drive - tune a drive attached to a stb04
++// @drive: drive to tune
++// @pio: desired PIO mode (255 for "best possible")
++// Set the interface PIO mode.
++//--------------------------------------------------------------------------
++static void stb04xxx_ide_tune_drive (ide_drive_t *drive, u8 pio) {
++	pio = ide_get_best_pio_mode (drive, pio, 4, NULL);
++	stb04xxx_ide_tune_chipset(drive, XFER_PIO_0 + pio);
++}
++
++static s32 stb04xxx_ide_dma_host_off (ide_drive_t * const drive) {
++	return(0);
++}
++
++static s32 stb04xxx_ide_dma_host_on (ide_drive_t * const drive) __attribute__((alias("stb04xxx_ide_dma_host_off")));
++
++static s32 stb04xxx_ide_dma_off_quietly (ide_drive_t * const drive) {
++	printk( "gonna switch off DMA - try PIO-Mode from now on\n" );
++	drive->using_dma = 0;
++	return(0);
++}
++
++
++//--------------------------------------------------------------------------
++//	stb04xxx_ide_dma_check - set up for DMA if possible
++//	@drive: IDE drive to set up
++//
++//	Set up the drive for the highest supported speed considering the
++//	driver, controller and cable
++//
++// Section 1.6.2.6 "IDE Controller, ATA/ATAPI-5" in the STB04xxx
++// Datasheet says the following modes are supported:
++//   PIO modes 0 to 4
++//   Multiword DMA modes 0 to 2
++//   UltraDMA modes 0 to 4
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_dma_check(ide_drive_t * const drive) {
++	u16 w80 = HWIF(drive)->udma_four;										// Allow UDMA_66 only if an 80 conductor cable is connected
++	s32 modes = XFER_PIO | XFER_EPIO | XFER_MWDMA | XFER_UDMA | (w80 ? XFER_UDMA_66 : 0);
++	s32 mode;
++
++	// XFER_EPIO includes both PIO modes 4 and 5.  Mode 5 is not
++	// valid for the STB04, so mask it out of consideration just
++	// in case some drive sets it... */
++	drive->id->eide_pio_modes &= ~4;
++	mode = ide_find_best_mode (drive, modes);
++
++	drive->using_dma = 0;
++	stb04xxx_ide_tune_chipset (drive, mode);
++	if( HWIF(drive)->autodma && (((mode & XFER_MODE) == XFER_PIO) || ((mode & XFER_MODE) == XFER_EPIO))) drive->using_dma = 0;
++	return 0;
++}
++
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_dma_on (ide_drive_t * const drive) {
++	drive->using_dma = 1;
++	return(stb04xxx_ide_dma_host_on(drive));
++}
++
++
++
++//--------------------------------------------------------------------------
++// fill in the next PRD entry note that one PRD entry can transfer at most 65536 bytes
++static s32 build_prd_entry (prd_entry_t **table, u32 paddr, u32 size, s32 *count) {
++	u16 tc;
++
++	while( size ) {
++		tc = size & 0xffff;
++
++		if( unlikely(*count >= NUM_PRD) ) return(0);
++		if( unlikely(paddr & 0xf) )	return(0);								// data must be 16 byte aligned
++		if( unlikely(tc & 0x0f) ) return(0);								// transfer count must be a multiple of 16
++
++		(*table)->prd_physptr = paddr;
++		(*table)->prd_count   = tc;
++
++		paddr += (tc ? : 65536);
++		size  -= (tc ? : 65536);
++
++		++(*table);
++		++(*count);
++	}
++
++	return 1;
++}
++
++
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_raw_build_sglist(ide_drive_t *drive, ide_hwif_t *hwif, struct request *rq, struct scatterlist *sg) {
++	s32 nents = 0;
++	ide_task_t *args = rq->special;
++	u8 *virt_addr = rq->buffer;
++	unsigned long  sector_count = rq->nr_sectors;
++
++	hwif->sg_dma_direction = (args->command_type == IDE_DRIVE_TASK_RAW_WRITE) ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
++
++	if( sector_count > 128 ) {
++		memset (&sg[nents], 0, sizeof(*sg));
++		sg[nents].page   = virt_to_page (virt_addr);
++		sg[nents].offset = offset_in_page (virt_addr);
++		sg[nents].length = 128 * SECTOR_SIZE;
++		nents++;
++		virt_addr    += (128 * SECTOR_SIZE);
++		sector_count -= 128;
++	}
++	memset (&sg[nents], 0, sizeof(*sg));
++	sg[nents].page   = virt_to_page (virt_addr);
++	sg[nents].offset = offset_in_page (virt_addr);
++	sg[nents].length = sector_count * SECTOR_SIZE;
++	nents++;
++	return(dma_map_sg(NULL, sg, nents, hwif->sg_dma_direction));
++}
++
++static s32 stb04xxx_ide_build_sglist (ide_drive_t *drive, ide_hwif_t *hwif, struct request *rq, struct scatterlist *sg) {
++	s32 nents;
++
++//	BUG_ON(hwif->sg_dma_active);
++	nents = blk_rq_map_sg (drive->queue, rq, sg);
++	hwif->sg_dma_direction = (rq_data_dir (rq) == READ) ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
++	return(dma_map_sg (NULL, sg, nents, hwif->sg_dma_direction));
++}
++
++
++
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_build_dmatable(ide_drive_t *drive, ide_hwif_t *hwif, struct request *rq) {
++	prd_entry_t  *table = (prd_entry_t *) hwif->dmatable_cpu;
++	u32 count = 0;
++	s32 icnt;
++	struct scatterlist *sg = hwif->sg_table;
++
++	if( HWGROUP(drive)->rq->flags & REQ_DRIVE_TASKFILE ) {
++		hwif->sg_nents = icnt = stb04xxx_ide_raw_build_sglist(drive, hwif, rq, sg);
++	} else {
++		hwif->sg_nents = icnt = stb04xxx_ide_build_sglist (drive, hwif, rq, sg);
++	}
++
++	if( icnt ) {
++		++icnt;
++		while( --icnt ) {
++			if( !build_prd_entry(&table, sg_dma_address(sg) + pio_mode[2], sg_dma_len (sg), &count) ) {
++				count = 0;													// fallback to PIO
++				break;
++			}
++			++sg;
++		}
++
++		if( likely(count) ) {
++			--table;
++			table->prd_count |= PRD_EOT;
++			return(count);
++		}
++	}
++
++	dma_unmap_sg(NULL, hwif->sg_table, hwif->sg_nents, hwif->sg_dma_direction);
++//	hwif->sg_dma_active = 0;
++	return(0);																 // revert to PIO for this request
++}
++
++
++//--------------------------------------------------------------------------
++static void stb04xxx_ide_destroy_dmatable(ide_drive_t *drive) {
++	dma_unmap_sg (NULL, HWIF(drive)->sg_table, HWIF(drive)->sg_nents, HWIF(drive)->sg_dma_direction);
++//	HWIF(drive)->sg_dma_active = 0;
++}
++
++
++//--------------------------------------------------------------------------
++// dma_intr() is the handler for disk read/write DMA interrupts
++// This is taken directly from ide-dma.c, which we can't use because
++// it requires PCI support.
++//--------------------------------------------------------------------------
++ide_startstop_t ide_dma_intr(ide_drive_t *drive) {
++	u8 dma_stat = HWIF(drive)->ide_dma_end (drive);
++	u8 stat     = HWIF(drive)->INB (IDE_STATUS_REG);						// get drive status
++
++	if( OK_STAT (stat, DRIVE_READY, drive->bad_wstat | DRQ_STAT) ) {
++		if( !dma_stat ) {
++			struct request * const rq = HWGROUP(drive)->rq;
++
++//
++//             DRIVER(drive)->end_request (drive, 1, rq->nr_sectors);
++//             return ide_stopped;
++//         }
++//
++//
++
++			if( rq->rq_disk ) {
++				ide_driver_t *drv;
++
++				drv = *(ide_driver_t **)rq->rq_disk->private_data;;
++				drv->end_request(drive, 1, rq->nr_sectors);
++			} else
++				ide_end_request(drive, 1, rq->nr_sectors);
++			return(ide_stopped);
++		}
++
++		printk ("%s: dma_intr: bad DMA status (dma_stat=%x)\n",
++				drive->name, dma_stat);
++	}
++
++//	return(DRIVER(drive)->error (drive, "dma_intr", stat));
++	return ide_error(drive, "dma_intr", stat);
++}
++
++
++
++
++
++
++
++//--------------------------------------------------------------------------
++static void stb04xxx_dma_exec_cmd(ide_drive_t *drive, u8 cmd) {
++	/* issue cmd to drive */
++//	printk( "ide_execute_command, cmd is: %.2X\n", cmd );
++//	ide_execute_command(drive, cmd, ide_dma_intr, 2 * WAIT_CMD, NULL);
++	HWIF(drive)->OUTB(cmd, IDE_COMMAND_REG);								// issue cmd to drive
++
++}
++
++
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_dma_end (ide_drive_t * const drive) {
++	volatile ide_t * const ide = (ide_t *) HWIF(drive)->hwif_data;
++	u32 dstat;
++
++	drive->waiting_for_dma = 0;												// stop DMA
++	ide->si_c0dcm &= ~0x01000000;
++	dstat = ide->si_c0s1;													// get DMA status
++	ide->si_c0s0 = 0xdc800000;												// clear all status bits
++	wmb ();
++	stb04xxx_ide_destroy_dmatable (drive);
++	/* verify good dma status */
++	return (dstat & 0x10000000) ? 0 : 1;									// return true if DMA still active
++}
++
++
++//--------------------------------------------------------------------------
++static s32 start_dma(ide_drive_t *const drive, ide_hwif_t * const hwif, struct request * const rq) {
++	volatile ide_t * const ide = (ide_t *) hwif->hwif_data;
++
++	if(unlikely (!stb04xxx_ide_build_dmatable(drive, hwif, rq))) return 1;	// try PIO instead of DMA
++
++	ide->si_c0tb = hwif->dmatable_dma;
++	ide->si_c0s0 = 0xdc800000;												// Clear all status
++	ide->si_c0ie = 0x90000000;												// Enable all intr
++	drive->waiting_for_dma = 1;
++	return 0;
++}
++
++
++//--------------------------------------------------------------------------
++static void stb04xxx_dma_start(ide_drive_t * const drive) {
++	volatile ide_t * const ide  = (ide_t *) HWIF(drive)->hwif_data;
++
++	mb();																	// start DMA
++	ide->si_c0dcm |= 0x01000000;
++}
++
++
++//--------------------------------------------------------------------------
++static int stb04xxx_dma_setup(ide_drive_t *drive) {
++	struct request *rq = drive->hwif->hwgroup->rq;
++	ide_hwif_t     *hwif = HWIF(drive);
++	volatile ide_t *ide  = (ide_t *) hwif->hwif_data;
++	u8              lba48= (drive->addressing == 1) ? 1 : 0;
++	task_ioreg_t    command;
++
++	ide_set_handler(drive, &ide_dma_intr, WAIT_CMD, NULL);
++
++	if( unlikely( start_dma( drive, hwif, rq ) ) ) return(1);				  // try PIO instead of DMA
++
++	if( rq_data_dir(rq) == READ ) {
++		ide->si_c0dcm = 0x00000000;											// specify r/w (READ)
++	} else {
++		ide->si_c0dcm = 0x08000000;											// specify r/w (WRITE)
++	}
++
++	if( drive->media != ide_disk ) return(0);
++
++	if( rq_data_dir(rq)  == READ ) {
++		command = (lba48) ? WIN_READDMA_EXT : WIN_READDMA;
++		if( drive->vdma ) command = lba48? WIN_READ_EXT : WIN_READ;
++	} else {
++		command = (lba48) ? WIN_WRITEDMA_EXT : WIN_WRITEDMA;
++		if( drive->vdma ) command = lba48? WIN_WRITE_EXT : WIN_WRITE;
++	}
++
++//	printk( "stb04xxx_dma_setup, cmd should be: %.2X\n", command );
++	return(0);
++}
++
++
++
++
++//--------------------------------------------------------------------------
++static s32 stb04xxx_ide_dma_test_irq (ide_drive_t * const drive) {
++	/* return 1 if dma irq issued, 0 otherwise */
++	volatile ide_t * const ide = (ide_t *) HWIF (drive)->hwif_data;
++
++	if( ide->si_c0s0 & 0x10000000 )	return(1);
++	if( !drive->waiting_for_dma ) {
++		EPRINTK(KERN_WARNING "%s: called while not waiting\n", drive->name );
++	}
++
++	return(0);
++}
++
++
++//--------------------------------------------------------------------------
++// static s32 stb04xxx_ide_dma_verbose (ide_drive_t * const drive) {
++//     const struct hd_driveid * const id   = drive->id;
++//     const ide_hwif_t        * const hwif = HWIF (drive);
++//
++//     GDEB_DPRINTK(ide_debug, 0x02, "field_valid: 0x%.2X, dma_ultra: 0x%.2X, dma_mword: 0x%.2X, ultra_mask: 0x%.2X, mwdma_mask: 0x%.2X\n",
++//          id->field_valid, id->dma_ultra, id->dma_mword, hwif->ultra_mask, hwif->mwdma_mask);
++//
++//     if (id->field_valid & 4) {
++//         if ((id->dma_ultra >> 8) && (id->dma_mword >> 8)) {
++//             GDEB_DPRINTK(ide_debug, 0x02, "BUG DMA OFF\n");
++//             return hwif->ide_dma_off_quietly(drive);
++//         }
++//         if (id->dma_ultra & ((id->dma_ultra >> 8) & hwif->ultra_mask)) {
++//             if (((id->dma_ultra >> 11) & 0x1F) &&
++//                 eighty_ninty_three(drive)) {
++//                 if ((id->dma_ultra >> 15) & 1) {
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(mode 7)\n");
++//                 } else if ((id->dma_ultra >> 14) & 1) {
++//                     /* ATA - 7 */
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(133)\n");
++//                 } else if ((id->dma_ultra >> 13) & 1) {
++//                     /* ATA - 6 UDMA mode 5 */
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(100)\n");
++//                 } else if ((id->dma_ultra >> 12) & 1) {
++//                     /* ATA - 5 UDMA mode 4 */
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(66)\n");
++//                 } else if ((id->dma_ultra >> 11) & 1) {
++//                     /* UDMA mode 3 */
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(44)\n");
++//                 } else
++//                     goto mode_two;
++//             } else {
++//         mode_two:
++//                 /* ATA - 4: UDMA modes 2 .. 0 */
++//                 if ((id->dma_ultra >> 10) & 1) {
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(33)\n");
++//                 } else if ((id->dma_ultra >> 9) & 1) {
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(25)\n");
++//                 } else if ((id->dma_ultra >> 8) & 1) {
++//                     GDEB_DPRINTK(ide_debug, 0x02, "UDMA(16)\n");
++//                 }
++//             }
++//         } else {
++//             GDEB_DPRINTK(ide_debug, 0x02, "(U)DMA\n");                      // Can be BIOS-enabled!
++//         }
++//     } else if (id->field_valid & 2) {
++//         if ((id->dma_mword >> 8) && (id->dma_1word >> 8)) {
++//             GDEB_DPRINTK(ide_debug, 0x02, "BUG DMA OFF\n");
++//             return hwif->ide_dma_off_quietly(drive);
++//         }
++//         GDEB_DPRINTK(ide_debug, 0x02, "DMA\n");
++//     } else if (id->field_valid & 1) {
++//         GDEB_DPRINTK(ide_debug, 0x02, "BUG\n");
++//     }
++//     return 1;
++// }
++
++
++static s32 stb04xxx_ide_dma_lostirq(ide_drive_t * const drive) {
++	GDEB_EPRINTK(ide_debug, 0x01, "%s: DMA interrupt recovery neccessary\n", drive->name);
++	return 1;
++}
++
++static s32 stb04xxx_ide_dma_timeout(ide_drive_t * const drive) {
++	GDEB_EPRINTK(ide_debug, 0x01, "%s: timeout waiting for DMA\n", drive->name);
++	if(stb04xxx_ide_dma_test_irq (drive)) return 0;
++	return stb04xxx_ide_dma_end (drive);
++}
++
++static void stb04xxx_init_ocp_ide(ide_hwif_t * const hwif) {
++	hwif->autodma = 1;
++	hwif->drives[0].autotune = hwif->drives[1].autotune = IDE_TUNE_AUTO;
++	hwif->drives[0].autodma  = hwif->drives[1].autodma  = hwif->autodma;
++
++	hwif->atapi_dma  = 1;
++	hwif->ultra_mask = hwif->udma_four ? 0x1f : 0x07;
++	hwif->mwdma_mask = 0x07;
++	hwif->swdma_mask = 0x00;
++
++	/* set everything to something != NULL */
++	hwif->ide_dma_host_off = &stb04xxx_ide_dma_host_off;
++	hwif->ide_dma_host_on  = &stb04xxx_ide_dma_host_on;
++
++	hwif->ide_dma_check       = &stb04xxx_ide_dma_check;
++	hwif->ide_dma_off_quietly = &stb04xxx_ide_dma_off_quietly;
++	hwif->ide_dma_on          = &stb04xxx_ide_dma_on;
++
++//  hwif->ide_dma_write = &stb04xxx_ide_dma_write;
++//  hwif->ide_dma_read  = &stb04xxx_ide_dma_read;
++//	hwif->ide_dma_begin = &stb04xxx_ide_dma_begin;
++	hwif->dma_setup    = &stb04xxx_dma_setup;
++	hwif->dma_exec_cmd = &stb04xxx_dma_exec_cmd;
++	hwif->dma_start    = &stb04xxx_dma_start;
++
++	hwif->ide_dma_end   = &stb04xxx_ide_dma_end;
++
++	hwif->ide_dma_test_irq = &stb04xxx_ide_dma_test_irq;
++
++//	hwif->ide_dma_verbose = &stb04xxx_ide_dma_verbose;
++	hwif->ide_dma_lostirq = &stb04xxx_ide_dma_lostirq;
++	hwif->ide_dma_timeout = &stb04xxx_ide_dma_timeout;
++}
++
++
++//--------------------------------------------------------------------------
++static s32 __init stb04xxx_ide_probe (struct ocp_device * const ocp) {
++	s32 err;
++	u32 uicdcr;
++	volatile ide_t *ide;
++	unsigned long   flags;
++	ide_hwif_t *hwif = &ide_hwifs[0];
++	u8 *ip;
++	s32 icnt;
++
++	PMVERSION();															// print the driver verision info for futher reference
++
++	if( !request_region(ocp->def->paddr, sizeof(ide_t), "ide") ) return(-ENOMEM);
++
++	ocp_force_power_on(ocp);
++	ide = ioremap (ocp->def->paddr, sizeof (ide_t));
++	if( !ide ) {
++		err = -ENOMEM;
++		release_region(ocp->def->paddr, sizeof(ide_t));
++		return(err);
++	}
++
++	ide->si_control = 0x80000000;											// Enable the interface
++	ide->si_c0s0 = 0xdc800000;												// Clear all status
++	ide->si_intenable = 0x80000000;
++	/* Per the STB04 data sheet:
++	 *  1)  tTO = ((8*RDYT) + 1) * SYS_CLK
++	 * and:
++	 *  2)  tTO >= 1250 + (2 * SYS_CLK) - t2
++	 * Solving the first equation for RDYT:
++	 *             (tTO/SYS_CLK) - 1
++	 *  3)  RDYT = -----------------
++	 *                     8
++	 * Substituting equation 2) for tTO in equation 3:
++	 *             ((1250 + (2 * SYS_CLK) - t2)/SYS_CLK) - 1
++	 *  3)  RDYT = -----------------------------------------
++	 *                                8
++	 * It's just the timeout so having it too long isn't too
++	 * significant, so we'll just assume t2 is zero.  All this math
++	 * is handled by the compiler and RDYT ends up being 11 assuming
++	 * that SYS_CLOCK_NS is 15.
++	 */
++	ide->si_c0timo = (EZ(EZ(1250 + 2 * SYS_CLOCK_NS, SYS_CLOCK_NS) - 1, 8)) << 23;	/* Chan 0 timeout */
++
++	ide->si_c0rt = MK_TIMING(6, 19, 15, 2);									// stuff some slow default PIO timing
++	ide->si_c0fpt = MK_TIMING(6, 19, 15, 2);
++	ide->si_c0c |= 0x00008040;												// enable 32bit access on both devices
++	local_irq_save(flags);													// we should probably have UIC functions to set external interrupt level/edge
++	uicdcr = mfdcr(DCRN_UIC_PR(UIC0));
++	uicdcr &= ~(0x80000000 >> IDE0_IRQ);
++	mtdcr(DCRN_UIC_PR(UIC0), uicdcr);
++	mtdcr(DCRN_UIC_TR(UIC0), mfdcr(DCRN_UIC_TR (UIC0)) | (0x80000000 >> IDE0_IRQ));
++	local_irq_restore (flags);
++	ocp_set_drvdata(ocp, hwif);												// initialize
++	default_hwif_mmiops(hwif);												// setup MMIO ops
++
++	hwif->mmio = 2;															// tell common code _not_ to mess with resources
++	ide_set_hwifdata(hwif, (void *) ide);
++
++	ip = (u8 *)(&(ide->si_c0d));											// Chan 0 data
++	for( icnt = IDE_DATA_OFFSET; icnt <= IDE_STATUS_OFFSET; icnt++ ) {
++		hwif->hw.io_ports[icnt] = (s32)(ip++);
++	}
++	hwif->hw.io_ports[IDE_CONTROL_OFFSET] = (s32) (&(ide->si_c0adc));
++	memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->hw.io_ports));
++	hwif->chipset = ide_generic;
++	hwif->irq     = ocp->def->irq;
++	hwif->noprobe = 0;
++	hwif->hold    = 1;
++
++	hwif->udma_four = (ide->si_c0s1 & 0x20000000) != 0;						// Figure out if an 80 conductor cable is connected
++	hwif->tuneproc  = &stb04xxx_ide_tune_drive;
++	hwif->speedproc = &stb04xxx_ide_tune_chipset;
++	hwif->drives[0].io_32bit = hwif->drives[1].io_32bit = 1;
++	hwif->drives[0].unmask   = hwif->drives[1].unmask   = 1;
++	pio_mode[0] = pio_mode[1] = -1;
++	stb04xxx_init_ocp_ide(hwif);
++
++	/* grab a page for the PRD table. this is save with respect to not
++	   crossing a 64k border because returned memory is page aligned
++	   and NUM_PRD*sizeof(prd_entry_t) end up being 2048 bytes, i.e.
++	   less than one page. */
++	hwif->dmatable_cpu = dma_alloc_coherent(NULL, NUM_PRD * sizeof (prd_entry_t), &hwif->dmatable_dma, GFP_KERNEL);
++	if( !hwif->dmatable_cpu ) {
++		err = -ENOMEM;
++	} else {
++		hwif->sg_table = kmalloc(sizeof (struct scatterlist) * NUM_PRD, GFP_KERNEL);
++		if( hwif->sg_table ) {
++			probe_hwif_init(hwif);
++			create_proc_ide_interfaces();
++			return(0);
++		}
++		err = -ENOMEM;
++		dma_free_coherent(NULL, NUM_PRD * sizeof (prd_entry_t), hwif->dmatable_cpu, hwif->dmatable_dma);
++	}
++
++	ide_set_hwifdata(hwif, NULL);
++	hwif->noprobe = 1;
++	hwif->chipset = ide_unknown;
++	ocp_set_drvdata(ocp, NULL);
++	iounmap((void *) ide);
++	release_region(ocp->def->paddr, sizeof(ide_t));
++	return(err);
++}
++
++
++
++static void stb04xxx_ide_remove(struct ocp_device * const ocp) {
++	ide_hwif_t     *hwif = ocp_get_drvdata(ocp);
++	volatile ide_t *ide_regs = ide_get_hwifdata(hwif);
++
++	GDEB_DPRINTK(ide_debug, 0x04, "remove IDE %d, major: %d, drive %s\n", hwif->index, hwif->major, hwif->drives[hwif->index].name );
++	ide_unregister(hwif->index);
++
++	if( hwif->dmatable_cpu )
++		dma_free_coherent(NULL, NUM_PRD * sizeof(prd_entry_t), hwif->dmatable_cpu, hwif->dmatable_dma);
++
++	/* dunno whether or not ide_unregister() will mess with those */
++	hwif->dmatable_cpu = NULL;
++	hwif->dmatable_dma = 0;
++
++	// 2.6.12 - ide_unregister calls destroy_proc_ide_interface()
++//	destroy_proc_ide_interfaces();
++	iounmap( (void *)ide_regs );
++	release_region( ocp->def->paddr, sizeof(ide_t) );
++
++	if( hwif->sg_table ) kfree(hwif->sg_table);
++	hwif->sg_table = NULL;
++}
++
++
++
++
++
++
++
++
++
++//--------------------------------------------------------------------------
++static struct ocp_device_id stb04xxx_ide_ids[] __devinitdata = {
++	{ .vendor = OCP_VENDOR_IBM, .function = OCP_FUNC_IDE,
++	},
++
++	{ .vendor = OCP_VENDOR_INVALID,
++	}
++};
++
++MODULE_DEVICE_TABLE(ocp, stb04xxx_ide_ids);
++
++static struct ocp_driver stb04xxx_ide_driver = {
++	.name     = "ide",
++	.id_table = stb04xxx_ide_ids,
++	.probe    = stb04xxx_ide_probe,
++	.remove   = __devexit_p(stb04xxx_ide_remove),
++#if defined(CONFIG_PM)
++	.suspend  = NULL,
++	.resume   = NULL,
++#endif
++};
++
++
++//--------------------------------------------------------------------------
++static s32 __init stb04xxx_ide_init(void) {
++	GDEB_DPRINTK(ide_debug, 0x10, "Ensure HD is powered up\n");				// we need to power up before probing
++
++// have to solve this problem different (unwanted dependencies to binary-only driver)
++// the problem here is we cannot read from the extended-io the power is switched with.
++// this is write-only-register and backupped in "tdcore"
++// we will release this stuff later
++//     if( !pw_cdhd_on() ) {                                                   // power up and test if already up
++//         GDEB_DPRINTK(ide_debug, 0x10, "Spinnup delay (power was off)\n");   // we need to power up before probing
++//         SLEEP(3000);
++//     }
++	return(ocp_register_driver(&stb04xxx_ide_driver));
++}
++
++static void __exit stb04xxx_ide_exit(void) {
++	ocp_unregister_driver(&stb04xxx_ide_driver);
++}
++
++
++
++/* needs to be called after ide has been initialized */
++late_initcall(stb04xxx_ide_init);
++module_exit(stb04xxx_ide_exit);
++
++MODULE_AUTHOR ("André D. / Uli H.");
++MODULE_DESCRIPTION ("driver for IBM OCP IDE on STB04xxx");
++MODULE_LICENSE ("GPL");
++

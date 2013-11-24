@@ -1,0 +1,50 @@
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/include/linux/fb.h linux-2.6.12/include/linux/fb.h
+--- linux-2.6.12.orig/include/linux/fb.h	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/include/linux/fb.h	2005-06-24 23:26:07.000000000 +0200
+@@ -107,6 +107,7 @@
+ #define FB_ACCEL_NV_20          44      /* nVidia Arch 20               */
+ #define FB_ACCEL_NV_30          45      /* nVidia Arch 30               */
+ #define FB_ACCEL_NV_40          46      /* nVidia Arch 40               */
++#define FB_ACCEL_IBM_STB04		89  /* IBM STB04 */
+ #define FB_ACCEL_NEOMAGIC_NM2070 90	/* NeoMagic NM2070              */
+ #define FB_ACCEL_NEOMAGIC_NM2090 91	/* NeoMagic NM2090              */
+ #define FB_ACCEL_NEOMAGIC_NM2093 92	/* NeoMagic NM2093              */
+diff -Xxfiles -rNBwdu linux-2.6.12.orig/drivers/video/Kconfig linux-2.6.12/drivers/video/Kconfig
+--- linux-2.6.12.orig/drivers/video/Kconfig	2005-06-17 21:48:29.000000000 +0200
++++ linux-2.6.12/drivers/video/Kconfig	2005-06-25 01:23:16.000000000 +0200
+@@ -39,7 +39,7 @@
+ 	  device-aware may cause unexpected results. If unsure, say N.
+
+ config FB_CFB_FILLRECT
+-	tristate
++	tristate "Support cfb_fillrect"
+ 	depends on FB
+ 	default n
+ 	---help---
+@@ -48,7 +48,7 @@
+ 	  (accelerated) version.
+
+ config FB_CFB_COPYAREA
+-	tristate
++	tristate "Support cfb_copyarea"
+ 	depends on FB
+ 	default n
+ 	---help---
+@@ -57,7 +57,7 @@
+ 	  version.
+
+ config FB_CFB_IMAGEBLIT
+-	tristate
++	tristate "Support cfb_imageblit"
+ 	depends on FB
+ 	default n
+ 	---help---
+@@ -66,7 +66,7 @@
+ 	  (accelerated) version.
+
+ config FB_SOFT_CURSOR
+-	tristate
++	tristate "Support soft_cursor"
+ 	depends on FB
+ 	default n
+ 	---help---
