@@ -1,0 +1,5 @@
+this is copied from the latest eglibc-2.16 supporting
+git commit b71a16e8ac18b5633ac3a52c60ad78dde37ede7b
+
+Tripledragon needs eglibc-2.16 since 2.17 and up only
+support kernel 2.6.16+, but TD is stuck at 2.12.
