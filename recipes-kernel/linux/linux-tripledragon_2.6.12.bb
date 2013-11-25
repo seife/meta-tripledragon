@@ -28,10 +28,13 @@ S = "${WORKDIR}/linux-${PV}"
 ARCH = "ppc"
 # ...and has a different location of the uImage => set it manually
 KERNEL_OUTPUT = "arch/${ARCH}/boot/images/${KERNEL_IMAGETYPE}"
+# ...and uses an old compiler...
+# this is normally defined in meta/classes/kernel-arch.bbclass
+KERNEL_CC = "${CCACHE}${HOST_PREFIX}gcc-3.4.4 ${HOST_CC_KERNEL_ARCH}"
 
 KERNEL_DEFCONFIG = "defconfig"
 
-TDKERNEL_CCOPTS = "ARCH=ppc CC=${HOST_PREFIX}gcc-3.4.4 CROSS_COMPILE=${HOST_PREFIX} HOSTCC=gcc"
+TDKERNEL_CCOPTS = "ARCH=ppc CROSS_COMPILE=${HOST_PREFIX}"
 
 do_patch_append() {
     bb.build.exec_func('add_td_includes', d)
