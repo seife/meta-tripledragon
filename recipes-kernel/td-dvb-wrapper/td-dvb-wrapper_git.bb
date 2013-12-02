@@ -4,8 +4,10 @@ LIC_FILES_CHKSUM = "file://${WORKDIR}/COPYING.GPLv2;md5=b234ee4d69f5fce4486a80fd
 
 inherit module
 DEPENDS += "linux-tripledragon gcc-cross-kernel-3.4.4"
+# without td-drivers, this does not work.
+RDEPENDS_kernel-module-td-dvb-frontend += "td-drivers"
 
-PR = "r0"
+PR = "r1"
 SRCREV = "${AUTOREV}"
 PV = "0.0+git${SRCPV}"
 
