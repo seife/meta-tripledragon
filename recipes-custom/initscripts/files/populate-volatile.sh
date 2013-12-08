@@ -217,3 +217,17 @@ if [ -z "${ROOT_DIR}" ] && [ -f /etc/ld.so.cache ] && [ ! -f /var/run/ld.so.cach
 then
 	ln -s /etc/ld.so.cache /var/run/ld.so.cache
 fi
+
+#### this does not belong here, but it's the simplest place to put it :-)
+# for convenience, create links to classic hda* and hdb* devices
+for i in /dev/discs/disc*; do
+	case $i in
+		*/disc0) link=hda ;;
+		*/disc1) link=hdb ;;
+		*) break ;;
+	esac
+	ln -sf $i/disc /dev/$link
+	for j in $i/part*; do
+		ln -sf $j /dev/${link}${j#*/part}
+	done
+done
