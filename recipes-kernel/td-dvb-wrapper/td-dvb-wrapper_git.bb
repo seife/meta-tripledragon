@@ -3,8 +3,9 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://${WORKDIR}/COPYING.GPLv2;md5=b234ee4d69f5fce4486a80fdaf4a4263"
 
 inherit module
-DEPENDS += "linux-tripledragon gcc-cross-kernel-3.4.4"
-# without td-drivers, this does not work.
+# without td-drivers, this does not work. Technically not needed in
+# DEPENDS, but without they are not available for installation
+DEPENDS += "linux-tripledragon gcc-cross-kernel-3.4.4 td-drivers"
 RDEPENDS_kernel-module-td-dvb-frontend += "td-drivers"
 
 PR = "r1"
