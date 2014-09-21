@@ -43,6 +43,8 @@ do_patch_append() {
 add_td_includes() {
 	install -d ${S}/include/stb
 	cp -a ${WORKDIR}/os/* ${S}/include/stb/
+	# hack, newer kernels have tools dir and kernel.bbclass expects it...
+	test -d ${S}/tools || mkdir ${S}/tools
 }
 
 do_configure_prepend() {
