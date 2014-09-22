@@ -13,7 +13,7 @@ SRC_URI += " \
 	file://COPYING.LIB \
 "
 
-LIC_FILES_CHKSUM = "file://COPYING.LIB;md5=2d5025d4aa3495befef8f17206a5b0a1"
+LIC_FILES_CHKSUM = "file://${WORKDIR}/COPYING.LIB;md5=2d5025d4aa3495befef8f17206a5b0a1"
 
 # inherit autotools pkgconfig
 inherit pkgconfig
@@ -25,11 +25,6 @@ SEPB = "${WORKDIR}/tdsvn/ARMAS"
 
 INSANE_SKIP_${PN} = "ldflags already-stripped"
 INSANE_SKIP_${PN}-dev = "ldflags"
-
-# no idea why the license file is not found without this...
-do_configure() {
-	cp '${WORKDIR}/COPYING.LIB' '${S}'
-}
 
 do_qa_configure() {
 	:
