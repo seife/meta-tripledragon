@@ -5,7 +5,7 @@ LIC_FILES_CHKSUM = "file://${S}/COPYING;md5=94d55d512a9ba36caa9b7df079bae19f"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
 inherit module
-DEPENDS += "linux-tripledragon gcc-cross-kernel-3.4.4"
+DEPENDS += "linux-tripledragon gcc3-kernel-cross"
 
 SRC_URI = " \
 	http://downloads.sourceforge.net/project/fuse/fuse-2.X/2.7.5/fuse-2.7.5.tar.gz \

@@ -6,7 +6,7 @@ inherit kernel siteinfo
 DESCRIPTION = "Linux kernel for the TripleDragon Set Top Box"
 COMPATIBLE_MACHINE = "tripledragon"
 
-DEPENDS += "gcc-cross-kernel-3.4.4"
+DEPENDS += "gcc3-kernel-cross"
 
 PR = "r0"
 
