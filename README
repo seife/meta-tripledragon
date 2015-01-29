@@ -1,6 +1,13 @@
 This is my first try at creating a BSP layer for the
 Tripledragon DBS-3000 Set-Top-Box.
 
+This is intended to be used with the daisy branch of
+git://git.yoctoproject.org/poky
+Unfortunately, it is not trivial to build old eglibc-2.16
+(which is the latest version that supports kernel 2.6.12)
+on newer releases, so meta-tripledragon is stuck at daisy
+for now.
+
 Have a lot of fun...
 
 	Stefan Seyfried
