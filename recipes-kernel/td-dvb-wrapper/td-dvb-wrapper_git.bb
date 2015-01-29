@@ -35,8 +35,7 @@ do_install() {
 	oe_runmake DEPMOD=echo INSTALL_MOD_PATH="${D}" M=${S} \
 		CC="${KERNEL_CC}" LD="${KERNEL_LD}" \
 		modules_install
-	install -d ${D}/${includedir}/hardware/linux/dvb
-	cp -a ${S}/frontend.h ${D}/${includedir}/hardware/linux/dvb/
+	make -C ${S} install DESTDIR=${D}/usr
 }
 
 # the original from module.bbclass does clear out MAKEFLAGS...
@@ -44,3 +43,7 @@ oe_runmake() {
 	bbnote make -e "$@"
 	make -e "$@" || die "oe_runmake failed"
 }
+
+FILES_${PN}-dev = " \
+	/usr/include/hardware \
+"
