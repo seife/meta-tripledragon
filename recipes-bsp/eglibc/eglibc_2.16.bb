@@ -137,6 +137,7 @@ do_configure () {
         fi
         (cd ${S} && gnu-configize) || die "failure in running gnu-configize"
         find ${S} -name "configure" | xargs touch
+        export MAKEINFO=:
         CPPFLAGS="" oe_runconf
 }
 
