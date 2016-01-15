@@ -13,7 +13,7 @@ SRCREV = "${AUTOREV}"
 PV = "0.0+git${SRCPV}"
 
 SRC_URI = " \
-	git://gitorious.org/seife/td-dvb-wrapper.git \
+	git://github.com/seife/td-dvb-wrapper.git;protocol=https \
 	file://COPYING.GPLv2 \
 "
 
