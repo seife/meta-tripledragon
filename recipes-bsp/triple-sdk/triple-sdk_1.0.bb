@@ -6,6 +6,7 @@ LICENSE = "unknown"
 
 SRC_URI += " \
 	file://unknown \
+	file://triple-sdk.sh \
 	file://xp_osd_user.h \
 "
 
@@ -28,6 +29,8 @@ do_compile() {
 
 do_install() {
 	install -d ${D}/${includedir}
+	install -d ${D}/${bindir}
+	install -m0755 ${WORKDIR}/triple-sdk.sh ${D}/${bindir}/
 	cp -a cross-enivroment-build/stb/include/hardware ${D}/${includedir}/
 	cp -a ${WORKDIR}/xp_osd_user.h ${D}/${includedir}/hardware/xp
 }
