@@ -1,3 +1,4 @@
+FILESEXTRAPATHS_prepend := "${THISDIR}/triple-sdk-1.0:"
 
 DEPENDS += "xz-native"
 
@@ -6,7 +7,7 @@ COMPATIBLE_MACHINE = "tripledragon"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
 SRC_URI = " \
-	https://gitorious.org/neutrino-hd/buildsystem-cs/raw/master:archive-patches/tripledragon/tdsvn-essential.tar.lzma \
+	file://tdsvn-essential.tar.lzma \
 "
 
 SRC_URI[md5sum] = "fb369a5801f7df5c850d2d6a21abefe0"
